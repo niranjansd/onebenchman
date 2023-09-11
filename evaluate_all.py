@@ -25,25 +25,29 @@ import metrics
 import pandas as pd
 
 # Tokenizing the dataset
-def encode(task, tokenizer):
-    feat = dataset_lib.GLUE['features'][task]
+def encode(feat, tokenizer):
     def task_encode(examples):
         return tokenizer(*[examples[i] for i in feat],
                             truncation=True, padding='max_length', max_length=128)
     return task_encode
 
 # Loading the model and tokenizer
-def load_model_and_tokenizer(model_name):
+def load_model_and_tokenizer(model_name, classifier=True):
     """Load a model and tokenizer."""
-    model = BertForSequenceClassification.from_pretrained(model_name)
+    if classifier:
+        model = BertForSequenceClassification.from_pretrained(model_name)
+    else:
+        model = BertForSequenceClassification.from_pretrained(model_name,
+                                                              num_labels=1,
+                                                              ignore_mismatched_sizes=True)
     tokenizer = BertTokenizerFast.from_pretrained(model_name)
     return model, tokenizer
 
 # Evaluate all tasks in the GLUE benchmark
-def evaluate_all_tasks(model_name, dataset_name):
+def evaluate_all_tasks(model_name, dataset_name, train=False):
     """Evaluate all tasks in the GLUE benchmark."""
     # Loading model and tokenizer
-    model, tokenizer = load_model_and_tokenizer(model_name)
+    datadict = dataset_lib.DATASET[dataset_name]
     
     # Defining training arguments
     training_args = TrainingArguments(
@@ -57,12 +61,16 @@ def evaluate_all_tasks(model_name, dataset_name):
     )
 
     m = {}
-    for task in dataset_lib.GLUE['features']:
+    for task in datadict:
+        model, tokenizer = load_model_and_tokenizer(model_name, classifier=task != 'stsb')
         print(task)
         # Define datasets
-        dataset = load_dataset(dataset_name, task)
+        if dataset_name == 'glue':
+            dataset = load_dataset(dataset_name, task)
+        else:
+            dataset = load_dataset(task)
 
-        dataset = dataset.map(encode(task, tokenizer), batched=True)
+        dataset = dataset.map(encode(datadict[task]['features'], tokenizer), batched=True)
         dataset.set_format(type='torch',
                            columns=['input_ids',
                                     'attention_mask',
@@ -70,7 +78,10 @@ def evaluate_all_tasks(model_name, dataset_name):
 
         # Splitting the dataset
         train_dataset = dataset['train']
-        eval_dataset = dataset['validation']
+        if "validation" in dataset:
+            eval_dataset = dataset['validation']
+        else:
+            eval_dataset = dataset['train']
 
         # Defining the Trainer
         trainer = Trainer(
@@ -82,8 +93,9 @@ def evaluate_all_tasks(model_name, dataset_name):
         )
 
         # # Training the model
-        print('Training...')
-        trainer.train()
+        if train:
+            print('Training...')
+            trainer.train()
 
         # Evaluating the model
         print("Eval")
@@ -93,6 +105,7 @@ def evaluate_all_tasks(model_name, dataset_name):
 
 args = parser.parse_args()
 m = evaluate_all_tasks(model_name=args.model_name,
-                       dataset_name=args.dataset_name)
+                       dataset_name=args.dataset_name,
+                       train=args.train)
 mdf = pd.DataFrame(m)
 mdf.to_csv(f'./results/{args.model_name}_{args.dataset_name}.csv')
