@@ -66,7 +66,7 @@ def evaluate_all_tasks(model_name, dataset_name, train=False):
         print(task)
         # Define datasets
         if dataset_name == 'glue':
-            dataset = load_dataset(dataset_name, task)
+            dataset = load_dataset(dataset_name, task.split('(')[0])
         else:
             dataset = load_dataset(task)
 
@@ -78,10 +78,7 @@ def evaluate_all_tasks(model_name, dataset_name, train=False):
 
         # Splitting the dataset
         train_dataset = dataset['train']
-        if "validation" in dataset:
-            eval_dataset = dataset['validation']
-        else:
-            eval_dataset = dataset['train']
+        eval_dataset = dataset[datadict[task]['eval_split']]
 
         # Defining the Trainer
         trainer = Trainer(
